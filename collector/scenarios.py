@@ -74,7 +74,8 @@ class _Gen:
     def execve(self, path: str, label: str = BENIGN, flags: int = 0, **kw) -> Event:
         return self.emit("execve", label, data=path, flags=flags, **kw)
 
-    def connect(self, ip: str, port: int, label: str = BENIGN, fd: int = 3) -> None:
+    def connect(self, ip: str, port: int, label: str = BENIGN, fd: int | None = None) -> None:
+        fd = self.rng.randint(3, 9) if fd is None else fd
         self.emit("socket", label, arg0=2, arg1=1)
         self.emit("connect", label, arg0=fd, arg1=port, data=ip, wait=(0.1, 20))
 
@@ -93,7 +94,7 @@ def _shell_activity(g: _Gen, n: int) -> None:
     for _ in range(n):
         cmd = rng.choice(_CMDS)
         if rng.random() < 0.12:  # pipeline / redirect: dup onto stdio is common and benign
-            g.emit("dup", arg0=rng.randint(3, 5), arg1=rng.choice([0, 1, 1, 2]))
+            g.emit("dup", arg0=rng.randint(3, 12), arg1=rng.choice([0, 1, 1, 2]))
         g.fork()
         if rng.random() < 0.05:
             g.execve(rng.choice(_SHELLS))
@@ -142,7 +143,7 @@ def _benign(kind: str, rng: random.Random, pid: int, t0: int) -> Session:
             g.fork()
             g.execve(rng.choice(["/usr/bin/gcc", "/usr/bin/ld", "/usr/bin/cc1", "/usr/bin/ar", "/bin/sh"]), wait=(0.2, 8))
             if rng.random() < 0.2:
-                g.emit("dup", arg0=4, arg1=rng.choice([1, 2]))
+                g.emit("dup", arg0=rng.randint(4, 12), arg1=rng.choice([1, 2]))
     elif kind == "debugger":
         g.comm = rng.choice(["gdb", "strace", "ltrace"])
         _shell_activity(g, rng.randint(2, 6))
@@ -230,7 +231,7 @@ def _attack(kind: str, rng: random.Random, pid: int, t0: int) -> Session:
         g.emit("ptrace", L, arg0=PTRACE_DETACH, arg1=tgt)
     elif kind == "hidden_pid":
         # A process the kernel reports but /proc does not list (getdents/proc hooking rootkit).
-        hid = pid + 5000 + rng.randint(0, 999)
+        hid = pid + rng.randint(100, 190)  # inside this session's own pid range
         g.events.clear()
         g.t = t0
         g.pid, g.pids, g.uid, g.euid, g.comm, g.ppid = hid, {hid}, 0, 0, "kworker/u8:3", 2

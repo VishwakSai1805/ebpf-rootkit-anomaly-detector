@@ -37,11 +37,12 @@ class EventSource:
         pass
 
 
-def read_proc_pids() -> frozenset[int]:
+def read_proc_pids() -> frozenset[int] | None:
+    """PIDs listed in /proc, or None when /proc is unreadable (no verdict possible)."""
     try:
-        return frozenset(int(n) for n in os.listdir("/proc") if n.isdigit())
+        return frozenset(int(n) for n in os.listdir("/proc") if n.isdigit()) or None
     except OSError:
-        return frozenset()
+        return None
 
 
 class ReplaySource(EventSource):
@@ -149,7 +150,7 @@ class LiveSource(EventSource):
         if self.proc.poll() is not None:
             err = (self.proc.stderr.read() or "").strip().splitlines()[-1:] or ["loader exited"]
             raise SourceUnavailable(err[0])
-        self._snap: frozenset[int] = read_proc_pids()
+        self._snap = read_proc_pids()
         self._snap_t = time.monotonic()
 
     def proc_snapshot(self):
@@ -195,13 +196,13 @@ def auto_source(mode: str = "auto", replay: str | None = None, seed: int = 0,
 
 def record(source: EventSource, path: str | os.PathLike, max_events: int) -> int:
     """Write events (and periodic /proc snapshots) to JSONL for later replay."""
-    n, last = 0, None
+    n, last_len = 0, -1
     with open(path, "w") as f:
         for ev in source:
             snap = source.proc_snapshot()
-            if snap is not None and snap != last and n % 64 == 0:
+            if snap is not None and len(snap) != last_len:  # snapshots only grow in mock; /proc churn is ignored
                 f.write(json.dumps({"type": "proc_snapshot", "pids": sorted(snap)}) + "\n")
-                last = snap
+                last_len = len(snap)
             f.write(ev.to_json() + "\n")
             n += 1
             if n >= max_events:
