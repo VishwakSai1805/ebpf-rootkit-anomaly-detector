@@ -113,7 +113,7 @@ def test_save_load_roundtrip(model, tmp_path):
 
 
 def _session_hit(model, s):
-    return any(model.detect(x).anomaly for x, *_ in session_windows(s))
+    return any(model.detect(x).anomaly and lab != "benign" for x, lab, *_ in session_windows(s))
 
 
 @pytest.fixture(scope="module")
@@ -131,7 +131,7 @@ def test_attack_detection(model, corpus, kind, min_recall):
 
 def test_benign_false_positive_rate_bounded(model, corpus):
     ss = [s for s in corpus if not s.is_attack]
-    fp = np.mean([_session_hit(model, s) for s in ss])
+    fp = np.mean([any(model.detect(x).anomaly for x, *_ in session_windows(s)) for s in ss])
     assert fp <= 0.12, f"session FPR {fp:.2f}"
     wins = [x for s in ss for x, *_ in session_windows(s, stride=3)]
     assert (model.score_batch(np.stack(wins))[0] >= 1).mean() <= 0.02
